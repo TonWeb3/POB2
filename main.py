@@ -27,12 +27,14 @@ from backtest import (
 
 
 def print_banner(optimization_mode: bool, drawdown_mode: bool = True):
-    if optimization_mode:
-        mode_text = "OPTIMIZATION MODE (Drawdown Reduction Progression)"
+    if optimization_mode and drawdown_mode:
+        mode_text = "DUAL MODE: DRAWDOWN SUITE (Full EV) + OPTIMIZATION (15m Structure)"
+    elif optimization_mode:
+        mode_text = "OPTIMIZATION MODE (15m Structural Optimization Progression)"
     elif drawdown_mode:
-        mode_text = "DRAWDOWN SUITE MODE (Testing All Drawdown Strategies)"
+        mode_text = "DRAWDOWN SUITE MODE (Testing All Drawdown Filters on Full EV)"
     else:
-        mode_text = "SINGLE BACKTEST MODE (Unprotected Baseline)"
+        mode_text = "SINGLE BACKTEST MODE (Original EV Strategy Baseline)"
     banner = f"""
 ================================================================================
           TOG-MAIN POLYMARKET BTC 15M QUANTITATIVE ENGINE
@@ -180,48 +182,67 @@ def main():
         traceback.print_exc()
         sys.exit(1)
 
-    # Step 2: Run Backtest or Optimization Suite
+    # Step 2: If drawdown_mode is enabled, run the Drawdown Suite on the Full EV model
+    if drawdown_mode:
+        if optimization_mode:
+            print("\n" + "=" * 90)
+            print("  PHASE 1: DRAWDOWN SUITE (Evaluating All Drawdown Filters on Original Full EV)")
+            print("=" * 90)
+
+        try:
+            dd_results = run_simulation(data_file, cfg)
+            export_results(dd_results, str(output_dir))
+            display_single_results(dd_results)
+
+            print(f"\n[OK] Drawdown Suite files exported to: {output_dir}")
+            print(f"     - Drawdown Comprehensive Report : {output_dir / 'drawdown_report.md'}")
+            print(f"     - Summary Backtest Report       : {output_dir / 'summary_report.md'}")
+            print(f"     - Ranked Leaderboard (CSV)      : {output_dir / 'drawdown_leaderboard.csv'}")
+            print(f"     - Champion Strategy Trades      : {output_dir / 'trades.csv'}\n")
+        except Exception as e:
+            print(f"\n[!] Drawdown suite simulation error: {e}")
+            import traceback
+            traceback.print_exc()
+            if not optimization_mode:
+                sys.exit(1)
+
+    # Step 3: If optimization_mode is enabled, run the 15m Structural Optimization Suite
     if optimization_mode:
+        if drawdown_mode:
+            print("\n" + "=" * 90)
+            print("  PHASE 2: OPTIMIZATION SUITE (15m Structural Architecture Progression & Matrix)")
+            print("=" * 90)
+
         try:
             suite_results = run_optimization_suite(data_file, cfg)
+            export_optimization_report(suite_results, str(output_dir))
+            display_optimization_summary(suite_results)
+
+            print(f"\n[OK] Optimization files exported to: {output_dir}")
+            print(f"     - Unified Optimization Report : {output_dir / 'optimization_report.md'}")
+            print(f"     - Ranked Leaderboard (CSV)    : {output_dir / 'optimization_leaderboard.csv'}")
+            print(f"     - Champion Strategy Trades    : {output_dir / 'best_strategy_trades.csv'}\n")
         except Exception as e:
             print(f"\n[!] Optimization suite error: {e}")
             import traceback
             traceback.print_exc()
             sys.exit(1)
 
-        # Step 3: Export and Display Optimization Results
-        export_optimization_report(suite_results, str(output_dir))
-        display_optimization_summary(suite_results)
-
-        print(f"\n[OK] Optimization files exported to: {output_dir}")
-        print(f"     - Unified Optimization Report : {output_dir / 'optimization_report.md'}")
-        print(f"     - Ranked Leaderboard (CSV)    : {output_dir / 'optimization_leaderboard.csv'}")
-        print(f"     - Champion Strategy Trades    : {output_dir / 'best_strategy_trades.csv'}\n")
-
-    else:
+    # Step 4: If neither mode is enabled, run a single backtest of the unmitigated baseline
+    if not drawdown_mode and not optimization_mode:
         try:
             results = run_simulation(data_file, cfg)
+            export_results(results, str(output_dir))
+            display_single_results(results)
+
+            print(f"\n[OK] Full backtest files exported to: {output_dir}")
+            print(f"     - Summary Report : {output_dir / 'summary_report.md'}")
+            print(f"     - Detailed Trades: {output_dir / 'trades.csv'}\n")
         except Exception as e:
             print(f"\n[!] Simulation error: {e}")
             import traceback
             traceback.print_exc()
             sys.exit(1)
-
-        # Step 3: Export and Display Single Results
-        export_results(results, str(output_dir))
-        display_single_results(results)
-
-        if drawdown_mode:
-            print(f"\n[OK] Drawdown Suite files exported to: {output_dir}")
-            print(f"     - Drawdown Comprehensive Report : {output_dir / 'drawdown_report.md'}")
-            print(f"     - Summary Backtest Report       : {output_dir / 'summary_report.md'}")
-            print(f"     - Ranked Leaderboard (CSV)      : {output_dir / 'drawdown_leaderboard.csv'}")
-            print(f"     - Champion Strategy Trades      : {output_dir / 'trades.csv'}\n")
-        else:
-            print(f"\n[OK] Full backtest files exported to: {output_dir}")
-            print(f"     - Summary Report : {output_dir / 'summary_report.md'}")
-            print(f"     - Detailed Trades: {output_dir / 'trades.csv'}\n")
 
 
 if __name__ == "__main__":

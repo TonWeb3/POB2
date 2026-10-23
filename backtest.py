@@ -1203,273 +1203,132 @@ def export_optimization_report(suite_results: Dict[str, Any], output_dir: str):
 
 # Drawdown Suite Strategy Definitions
 def define_drawdown_strategies(strat_cfg: Dict[str, Any]) -> List[Dict[str, Any]]:
-    """Defines all drawdown filter strategies to be evaluated when drawdown_mode is True."""
-    min_entry_second = int(strat_cfg.get("min_entry_second", 0))
-    max_entry_second = int(strat_cfg.get("max_entry_second", 45))
-    min_ask = float(strat_cfg.get("min_entry_price", 0.40))
-    max_ask = float(strat_cfg.get("max_entry_price", 0.58))
-    use_15m_ha = bool(strat_cfg.get("use_15m_ha", True))
+    """Defines all drawdown filter strategies evaluated on the FULL EV model (0-840s window, NO 15m HA structure)."""
+    ev_th = float(strat_cfg.get("ev_threshold", 0.04))
+    min_prob = float(strat_cfg.get("min_prob", 0.55))
+    min_seconds_left = int(strat_cfg.get("min_seconds_left", 20))
     circuit_breaker_losses = int(strat_cfg.get("circuit_breaker_losses", 2))
     pause_markets = int(strat_cfg.get("pause_markets", 4))
     max_1h_vol_bp = float(strat_cfg.get("max_1h_vol_bp", 45.0))
     skip_hours = list(strat_cfg.get("skip_hours", [18, 23]))
-    prior_body_max_bp = float(strat_cfg.get("prior_body_max_bp", 12.0))
     min_4h_move_pct = float(strat_cfg.get("min_4h_move_pct", 0.50))
     impulse_1h_down_pct = float(strat_cfg.get("impulse_1h_down_pct", -0.19))
     impulse_1h_up_pct = float(strat_cfg.get("impulse_1h_up_pct", 0.32))
 
+    base_ev = {
+        "strategy_mode": "ev_momentum",
+        "ev_threshold": ev_th,
+        "min_prob": min_prob,
+        "min_entry_second": 0,
+        "max_entry_second": 840,
+        "min_seconds_left": min_seconds_left,
+        "min_strike_distance_bp": 0.0,
+        "use_15m_ha": False,
+        "use_15m_trend_ema": False,
+        "net_ev_gate": False,
+        "prior_body_max_bp": 0.0,
+        "min_ask": 0.0,
+        "max_ask": 1.0,
+    }
+
     return [
         {
-            "id": "dd01_immediate_open_baseline",
-            "name": "Immediate Open Baseline (+ Anti-Exhaustion <12 bp)",
-            "category": "Immediate Open Architecture",
-            "description": "Enters immediately at candle open (t<=45s) via 15m Structural HA flat base/top, cheap odds (45c-58c), and Anti-Exhaustion (<12 bp prior body). Baseline reference.",
-            "params": {
-                "strategy_mode": "immediate_open",
-                "min_entry_second": min_entry_second,
-                "max_entry_second": max_entry_second,
-                "max_ask": max_ask,
-                "min_ask": min_ask,
-                "use_15m_ha": use_15m_ha,
-                "prior_body_max_bp": prior_body_max_bp,
-                "circuit_breaker_losses": circuit_breaker_losses,
-                "pause_markets": pause_markets,
-                "max_1h_vol_bp": max_1h_vol_bp,
-                "skip_hours": skip_hours
-            }
+            "id": "dd00_unprotected_full_ev_baseline",
+            "name": "Full EV Baseline (Unprotected 0-840s EV Model)",
+            "category": "Full EV Benchmark",
+            "description": "Pure Full EV model across the entire 0-840s window with NO 15m HA structure and NO pause/volatility filters. The reference benchmark.",
+            "params": dict(base_ev)
         },
         {
-            "id": "dd02_4h_master_switch",
-            "name": "Drawdown Filter 1: 4h 0.5% Master Switch",
+            "id": "dd01_4h_master_switch",
+            "name": "Drawdown Filter 1: Full EV + 4h 0.5% Master Switch",
             "category": "Macro Regime Switch",
-            "description": "Immediate Open gated by trailing 4h Bitcoin absolute move >= 0.50%. Bypasses dead consolidation drag, raising win rate to ~73.8% and profit factor to 2.35.",
-            "params": {
-                "strategy_mode": "immediate_open",
-                "min_entry_second": min_entry_second,
-                "max_entry_second": max_entry_second,
-                "max_ask": max_ask,
-                "min_ask": min_ask,
-                "use_15m_ha": use_15m_ha,
-                "prior_body_max_bp": prior_body_max_bp,
-                "circuit_breaker_losses": circuit_breaker_losses,
-                "pause_markets": pause_markets,
-                "max_1h_vol_bp": max_1h_vol_bp,
-                "skip_hours": skip_hours,
-                "drawdown_filter": "4h_master_switch",
-                "min_4h_move_pct": min_4h_move_pct,
-                "require_1h_impulse": False
-            }
+            "description": "Full EV model gated by trailing 4h Bitcoin absolute move >= 0.50%. Bypasses dead consolidation drag where 100 flat trades shrink equity by -41%.",
+            "params": {**base_ev, "min_4h_move_pct": min_4h_move_pct, "require_1h_impulse": False}
         },
         {
-            "id": "dd03_variant_b_1h_impulse",
-            "name": "Drawdown Filter 2: Variant B 1h Impulse (4h 0.5% + 1h Impulse)",
+            "id": "dd02_variant_b_1h_impulse",
+            "name": "Drawdown Filter 2: Full EV + Variant B 1h Impulse",
             "category": "Macro + Impulse Gating",
-            "description": "Immediate Open requiring 4h move >= 0.50% AND trailing 1h signed move is in impulse mode (outside flat corridor -0.19% to +0.32%). Reaches peak regime purity.",
-            "params": {
-                "strategy_mode": "immediate_open",
-                "min_entry_second": min_entry_second,
-                "max_entry_second": max_entry_second,
-                "max_ask": max_ask,
-                "min_ask": min_ask,
-                "use_15m_ha": use_15m_ha,
-                "prior_body_max_bp": prior_body_max_bp,
-                "circuit_breaker_losses": circuit_breaker_losses,
-                "pause_markets": pause_markets,
-                "max_1h_vol_bp": max_1h_vol_bp,
-                "skip_hours": skip_hours,
-                "drawdown_filter": "variant_b_1h_impulse",
-                "min_4h_move_pct": min_4h_move_pct,
-                "require_1h_impulse": True,
-                "impulse_1h_down_pct": impulse_1h_down_pct,
-                "impulse_1h_up_pct": impulse_1h_up_pct
-            }
+            "description": "Full EV requiring 4h move >= 0.50% AND trailing 1h signed move is in impulse mode (outside stall corridor -0.19% to +0.32%).",
+            "params": {**base_ev, "min_4h_move_pct": min_4h_move_pct, "require_1h_impulse": True, "impulse_1h_down_pct": impulse_1h_down_pct, "impulse_1h_up_pct": impulse_1h_up_pct}
         },
         {
-            "id": "dd04_circuit_breaker_alone",
-            "name": "Drawdown Filter 3: Circuit Breaker Alone (1h Pause after 2 Losses)",
+            "id": "dd03_circuit_breaker_alone",
+            "name": "Drawdown Filter 3: Full EV + Circuit Breaker Alone (1h Pause after 2 Losses)",
             "category": "Loss Cluster Pause",
-            "description": "Automatically pauses trading for 4 markets (1 hour) after 2 consecutive losses. Isolates cooldown protection against multi-loss clusters.",
-            "params": {
-                "min_strike_distance_bp": 6.0,
-                "use_15m_ha": True,
-                "min_entry_second": 90,
-                "max_entry_second": 600,
-                "circuit_breaker_losses": 2,
-                "pause_markets": 4
-            }
+            "description": "Automatically pauses Full EV trading for 4 markets (1 hour) after 2 consecutive losses. Isolates cooldown protection against loss clusters.",
+            "params": {**base_ev, "circuit_breaker_losses": 2, "pause_markets": 4}
         },
         {
-            "id": "dd05_extended_circuit_breaker",
-            "name": "Drawdown Filter 4: Extended Circuit Breaker (1.5h Pause after 2 Losses)",
+            "id": "dd04_extended_circuit_breaker",
+            "name": "Drawdown Filter 4: Full EV + Extended Circuit Breaker (1.5h Pause)",
             "category": "Loss Cluster Pause",
-            "description": "Extended cooldown: pauses trading for 6 markets (1.5 hours) after 2 consecutive losses to fully clear multi-hour consolidation chop.",
-            "params": {
-                "min_strike_distance_bp": 6.0,
-                "use_15m_ha": True,
-                "min_entry_second": 90,
-                "max_entry_second": 600,
-                "circuit_breaker_losses": 2,
-                "pause_markets": 6
-            }
+            "description": "Extended cooldown: pauses Full EV trading for 6 markets (1.5 hours) after 2 consecutive losses to fully clear multi-hour chop.",
+            "params": {**base_ev, "circuit_breaker_losses": 2, "pause_markets": 6}
         },
         {
-            "id": "dd06_volatility_gate_alone",
-            "name": "Drawdown Filter 5: Volatility Gate Alone (<45 bp 1h ATR)",
+            "id": "dd05_volatility_gate_alone",
+            "name": "Drawdown Filter 5: Full EV + Volatility Gate Alone (<45 bp 1h ATR)",
             "category": "Volatility Protection",
-            "description": "Automatically pauses trading whenever trailing 1-hour realized ATR exceeds 45 basis points (bypasses sudden news spikes & flash turbulence).",
-            "params": {
-                "min_strike_distance_bp": 6.0,
-                "use_15m_ha": True,
-                "min_entry_second": 90,
-                "max_entry_second": 600,
-                "max_1h_vol_bp": 45.0
-            }
+            "description": "Automatically pauses Full EV trading whenever trailing 1-hour realized ATR exceeds 45 basis points (bypasses sudden news spikes & flash turbulence).",
+            "params": {**base_ev, "max_1h_vol_bp": 45.0}
         },
         {
-            "id": "dd07_stricter_volatility_gate",
-            "name": "Drawdown Filter 6: Stricter Volatility Gate Alone (<40 bp 1h ATR)",
+            "id": "dd06_stricter_volatility_gate",
+            "name": "Drawdown Filter 6: Full EV + Stricter Volatility Gate (<40 bp 1h ATR)",
             "category": "Volatility Protection",
-            "description": "Stricter volatility ceiling (<40 bp 1h ATR) to guarantee smooth order book conditions for every execution.",
-            "params": {
-                "min_strike_distance_bp": 6.0,
-                "use_15m_ha": True,
-                "min_entry_second": 90,
-                "max_entry_second": 600,
-                "max_1h_vol_bp": 40.0
-            }
+            "description": "Stricter volatility ceiling (<40 bp 1h ATR) on Full EV to guarantee smooth order book conditions for every execution.",
+            "params": {**base_ev, "max_1h_vol_bp": 40.0}
         },
         {
-            "id": "dd08_cb_vol_combo_45bp",
-            "name": "Drawdown Filter 7: Circuit Breaker (1h) + Volatility Gate (<45 bp)",
+            "id": "dd07_cb_vol_combo_45bp",
+            "name": "Drawdown Filter 7: Full EV + Circuit Breaker (1h) + Volatility Gate (<45 bp)",
             "category": "CB + Volatility Combined",
-            "description": "Combines 1-hour circuit breaker cooldown with 45 bp realized ATR gate. Simultaneously eliminates loss clustering and market turbulence.",
-            "params": {
-                "min_strike_distance_bp": 6.0,
-                "use_15m_ha": True,
-                "min_entry_second": 90,
-                "max_entry_second": 600,
-                "circuit_breaker_losses": 2,
-                "pause_markets": 4,
-                "max_1h_vol_bp": 45.0
-            }
+            "description": "Combines 1-hour circuit breaker cooldown with 45 bp realized ATR gate on Full EV. Simultaneously eliminates loss clustering and turbulence.",
+            "params": {**base_ev, "circuit_breaker_losses": 2, "pause_markets": 4, "max_1h_vol_bp": 45.0}
         },
         {
-            "id": "dd09_cb_vol_combo_40bp",
-            "name": "Drawdown Filter 8: Circuit Breaker (1h) + Stricter Volatility (<40 bp)",
+            "id": "dd08_cb_vol_combo_40bp",
+            "name": "Drawdown Filter 8: Full EV + Circuit Breaker (1h) + Stricter Volatility (<40 bp)",
             "category": "CB + Volatility Combined",
-            "description": "Combines 1-hour circuit breaker cooldown with strict 40 bp ATR ceiling.",
-            "params": {
-                "min_strike_distance_bp": 6.0,
-                "use_15m_ha": True,
-                "min_entry_second": 90,
-                "max_entry_second": 600,
-                "circuit_breaker_losses": 2,
-                "pause_markets": 4,
-                "max_1h_vol_bp": 40.0
-            }
+            "description": "Combines 1-hour circuit breaker cooldown with strict 40 bp ATR ceiling on Full EV.",
+            "params": {**base_ev, "circuit_breaker_losses": 2, "pause_markets": 4, "max_1h_vol_bp": 40.0}
         },
         {
-            "id": "dd10_cb_vol_optimal_hours",
-            "name": "Drawdown Filter 9: CB + Vol (<45 bp) + Skip 18 & 23 UTC Hours",
+            "id": "dd09_cb_vol_optimal_hours",
+            "name": "Drawdown Filter 9: Full EV + CB + Vol (<45 bp) + Skip 18 & 23 UTC Hours",
             "category": "Optimal Hours Defense",
-            "description": "Circuit Breaker + Volatility Gate (<45 bp) + skips 18:00 UTC (US cash close) and 23:00 UTC (daily candle roll). Cuts drawdown to 29.4%.",
-            "params": {
-                "min_strike_distance_bp": 6.0,
-                "use_15m_ha": True,
-                "min_entry_second": 90,
-                "max_entry_second": 600,
-                "circuit_breaker_losses": 2,
-                "pause_markets": 4,
-                "max_1h_vol_bp": 45.0,
-                "skip_hours": [18, 23]
-            }
+            "description": "Full EV + CB + Volatility Gate (<45 bp) + skips 18:00 UTC (US cash close) and 23:00 UTC (daily candle roll).",
+            "params": {**base_ev, "circuit_breaker_losses": 2, "pause_markets": 4, "max_1h_vol_bp": 45.0, "skip_hours": [18, 23]}
         },
         {
-            "id": "dd11_cb_vol_skip_tuesday",
-            "name": "Drawdown Filter 10: CB + Vol (<45 bp) + Skip Tuesday Chop",
+            "id": "dd10_cb_vol_skip_tuesday",
+            "name": "Drawdown Filter 10: Full EV + CB + Vol (<45 bp) + Skip Tuesday Chop",
             "category": "Days Filter",
-            "description": "CB + Volatility + pauses trading on Tuesdays (day with highest historical loss concentration).",
-            "params": {
-                "min_strike_distance_bp": 6.0,
-                "use_15m_ha": True,
-                "min_entry_second": 90,
-                "max_entry_second": 600,
-                "circuit_breaker_losses": 2,
-                "pause_markets": 4,
-                "max_1h_vol_bp": 45.0,
-                "skip_days": ["Tuesday"]
-            }
+            "description": "Full EV + CB + Volatility + pauses trading on Tuesdays (day with highest historical loss concentration).",
+            "params": {**base_ev, "circuit_breaker_losses": 2, "pause_markets": 4, "max_1h_vol_bp": 45.0, "skip_days": ["Tuesday"]}
         },
         {
-            "id": "dd12_cb_vol_skip_tue_thu",
-            "name": "Drawdown Filter 11: CB + Vol (<45 bp) + Skip Tue & Thu Chop",
+            "id": "dd11_cb_vol_skip_tue_thu",
+            "name": "Drawdown Filter 11: Full EV + CB + Vol (<45 bp) + Skip Tue & Thu Chop",
             "category": "Days Filter",
-            "description": "CB + Volatility + pauses trading on Tuesdays and Thursdays (mid-week institutional options roll chop).",
-            "params": {
-                "min_strike_distance_bp": 6.0,
-                "use_15m_ha": True,
-                "min_entry_second": 90,
-                "max_entry_second": 600,
-                "circuit_breaker_losses": 2,
-                "pause_markets": 4,
-                "max_1h_vol_bp": 45.0,
-                "skip_days": ["Tuesday", "Thursday"]
-            }
+            "description": "Full EV + CB + Volatility + pauses trading on Tuesdays and Thursdays (mid-week institutional options roll chop).",
+            "params": {**base_ev, "circuit_breaker_losses": 2, "pause_markets": 4, "max_1h_vol_bp": 45.0, "skip_days": ["Tuesday", "Thursday"]}
         },
         {
-            "id": "dd13_cb_vol_sessions",
-            "name": "Drawdown Filter 12: CB + Vol (<45 bp) + Asia & US Sessions",
+            "id": "dd12_cb_vol_sessions",
+            "name": "Drawdown Filter 12: Full EV + CB + Vol (<45 bp) + Asia & US Sessions",
             "category": "Sessions Filter",
-            "description": "CB + Volatility + trades only Asia (00:00-08:00 UTC) and US (16:00-24:00 UTC) sessions, bypassing European overlap chop.",
-            "params": {
-                "min_strike_distance_bp": 6.0,
-                "use_15m_ha": True,
-                "min_entry_second": 90,
-                "max_entry_second": 600,
-                "circuit_breaker_losses": 2,
-                "pause_markets": 4,
-                "max_1h_vol_bp": 45.0,
-                "allowed_sessions": ["Asia", "US"]
-            }
+            "description": "Full EV + CB + Volatility + trades only Asia (00:00-08:00 UTC) and US (16:00-24:00 UTC) sessions, bypassing European overlap chop.",
+            "params": {**base_ev, "circuit_breaker_losses": 2, "pause_markets": 4, "max_1h_vol_bp": 45.0, "allowed_sessions": ["Asia", "US"]}
         },
         {
-            "id": "dd14_comprehensive_fortress",
-            "name": "Drawdown Filter 13: Comprehensive Fortress Suite (CB + Vol + Hours + Tue/Thu)",
+            "id": "dd13_comprehensive_fortress",
+            "name": "Drawdown Filter 13: Full EV + Comprehensive Fortress Suite (CB + Vol + Hours + Tue/Thu)",
             "category": "Multi-Filter Suite",
-            "description": "Comprehensive defense: Circuit Breaker + Volatility Gate (<45 bp) + Skip Transition Hours (18 & 23 UTC) + Skip Tue & Thu Chop. Peak win rate (87.3%) and profit factor (1.83).",
-            "params": {
-                "min_strike_distance_bp": 6.0,
-                "use_15m_ha": True,
-                "min_entry_second": 90,
-                "max_entry_second": 600,
-                "circuit_breaker_losses": 2,
-                "pause_markets": 4,
-                "max_1h_vol_bp": 45.0,
-                "skip_days": ["Tuesday", "Thursday"],
-                "skip_hours": [18, 23]
-            }
-        },
-        {
-            "id": "dd15_unprotected_ev_baseline",
-            "name": "Reference Baseline: Original EV Strategy (No Protections)",
-            "category": "Unprotected Benchmark",
-            "description": "The unmitigated reference benchmark: Standard EV momentum across 0-840s window without any pause filters, volatility gates, or macro switches.",
-            "params": {
-                "strategy_mode": "ev_momentum",
-                "ev_threshold": float(strat_cfg.get("ev_threshold", 0.04)),
-                "min_prob": float(strat_cfg.get("min_prob", 0.55)),
-                "min_entry_second": 0,
-                "max_entry_second": 840,
-                "min_strike_distance_bp": 0.0,
-                "use_15m_ha": False,
-                "circuit_breaker_losses": 0,
-                "pause_markets": 0,
-                "max_1h_vol_bp": 0.0,
-                "skip_hours": [],
-                "prior_body_max_bp": 0.0,
-                "min_4h_move_pct": 0.0,
-                "require_1h_impulse": False
-            }
+            "description": "Full EV comprehensive defense: Circuit Breaker + Volatility Gate (<45 bp) + Skip Transition Hours (18 & 23 UTC) + Skip Tue & Thu Chop.",
+            "params": {**base_ev, "circuit_breaker_losses": 2, "pause_markets": 4, "max_1h_vol_bp": 45.0, "skip_days": ["Tuesday", "Thursday"], "skip_hours": [18, 23]}
         }
     ]
 
